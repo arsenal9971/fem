@@ -1,0 +1,27 @@
+
+load "msh3"
+load "hips_FreeFem"
+
+int[int] iparm(16);
+real[int] dparm(6);
+iparm=-1;
+dparm=-1;
+
+int nn=10;
+mesh Th2=square(nn,nn,[x,y],region=0);
+fespace Vh2(Th2,P2);
+Vh2 ux,uz,p2;
+int[int] rup=[0,2],  rdown=[0,1], rmid=[1,1,2,1,3,1,4,1];
+real zmin=0,zmax=200;
+mesh3 Th=buildlayers(Th2,nn,
+  zbound=[zmin,zmax],
+  labelmid=rmid, 
+  reffaceup = rup,
+  reffacelow = rdown);
+
+
+fespace Vh(Th,P2);
+
+Vh une=1;
+
+cout << "The integrla is " << int3d(Th)(une) <<endl;

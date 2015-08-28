@@ -1,0 +1,103 @@
+//Mirage acustico 
+
+//Definimos las constantes y la funcion de onda incidente
+
+real kappa0=1, rho0=1, kx=pi/5., ky=pi/5., w=sqrt(kx^2+ky^2);
+
+real kappa=(5./10.)*kappa0, rho1=(10./5.)*rho0, rho2=(5./10.)*rho0;
+
+real cx=sqrt(kappa/rho1), cy=sqrt(kappa/rho2);
+
+func f=(exp(1i*kx*x)+exp(-1i*kx*x))*exp(1i*ky*y);
+
+//Definimos el primer dominio 
+
+border a(t=0,20){x=t; y=0; label=1;};
+border b(t=0,2*pi){x=20; y=t; label=2;};
+border c(t=0,20){x=20-t; y=2*pi; label=3;};
+border d(t=0,2*pi){x=0; y=2*pi-t; label=4;};
+border e(t=0,2*pi){x=10.; y=t; label=5;};
+border g(t=0,2*pi){x=5; y=t; label=6;};
+
+int n=180;
+mesh Th=buildmesh(a(n)+b(n)+c(n)+e(n)+d(n)+g(n));
+plot(Th);
+
+//Definimos el segundo dominio 
+
+border a2(t=5,20){x=t; y=0; label=1;};
+border b2(t=0,2*pi){x=20; y=t; label=2;};
+border c2(t=0,15){x=20-t; y=2*pi; label=3;};
+border d2(t=0,2*pi){x=5; y=2*pi-t; label=4;};
+border g2(t=0,2*pi){x=10; y=t; label=6;};
+
+int nn=90;
+mesh Th1=buildmesh(a2(nn)+b2(nn)+c2(nn)+d2(nn)+g2(nn));
+plot(Th1);
+
+
+//PRIMER PROBLEMA
+
+
+//Definimos el espacio de elemento finito donde trabajare
+
+
+fespace Vh(Th, P2, periodic=[[1,x],[3,x]]); //Espacio de funciones periodicas en las fronteras 3 y 1
+fespace Vhh(Th,P2);
+
+Vh<complex> u, v;
+
+//Definimos el problema
+
+problem Fluido(u,v)=int2d(Th)(dx(u)*conj(dx(v)))+int2d(Th)((ky^2)*u*conj(v)-2i*ky*dy(u)*conj(v)+dy(u)*conj(dy(v)))
+                    -int2d(Th)(w^2*u*conj(v))+on(2,u=f*exp(-1i*ky*y))+int1d(Th,2)(0*conj(v));
+
+Fluido;
+
+Vhh<complex> p=u*exp(1i*ky*y);
+Vhh pr=real(u), pi=imag(u);
+plot(pr, fill=true, value=true);
+
+//SEGUNDO PROBLEMA 
+
+//Definimos el espacio de elemento finito donde trabajare
+
+fespace Ph1(Th1,P0); //Definimos el espacio de funciones continuas a pedazos 
+fespace Vh1(Th1, P2, periodic=[[1,x],[3,x]]); //Espacio de funciones periodicas en las fronteras 3 y 1
+fespace Vhh1(Th1,P2);
+
+Ph1 reg=region; //Llamamos a la funcion caracteristica 
+//Definimos cada subdominio 
+
+int nder=reg(12,1);
+int nizq=reg(6,1); 
+
+//Definimos los coeficientes con funciones caracteristicas
+
+Ph1 n1=1+(cx^2-1)*(region==nizq);
+Ph1 n2=1+(cy^2-1)*(region==nizq);
+
+
+Vh1<complex> uu, vv;
+
+//Definimos el problema
+
+problem Metafluido(uu,vv)=int2d(Th1)((n1)*dx(uu)*conj(dx(vv)))+int2d(Th1)((n2)*((ky^2)*uu*conj(vv)-2i*ky*dy(uu)*conj(vv)+dy(uu)*conj(dy(vv))))
+                         -int2d(Th1)(w^2*uu*conj(vv))+on(2,uu=f*exp(-1i*ky*y))+int1d(Th1,2)(0*conj(vv));
+
+Metafluido;
+
+Vhh1<complex> pp=uu*exp(1i*ky*y);
+Vhh1 ppr=real(uu), ppi=imag(uu);
+plot(ppr, fill=true, value=true);
+
+//Definimos la funcion de referencia
+
+Vhh1 prref=pr;
+plot(prref, fill=true, value=true);
+
+//Calculamos el error relativo 
+
+real err=int2d(Th1)(((abs(prref-ppr))^2)*(region==nder))/int2d(Th1)(((abs(prref))^2)*(region==nder));
+
+cout << "error =" << err << endl;

@@ -1,0 +1,268 @@
+//Problema de msma's en 3D en paralelo 
+
+//Llamamos a las librerias necesarias
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"
+load "ff-Ipopt"
+
+verbosity=0;
+load "msh3"
+load "hips_FreeFem"
+
+int[int] iparm(16);
+real[int] dparm(6);
+iparm=-1;
+dparm=-1;
+
+//Constantes del algoritmo 
+int niter=30; //Número máximo de iteraciones
+real[int] lagrange=[0.,0.,0.,0.,0.,0.]; // Multiplicador de Lagrange para la restriccion de t
+real[int] lagmin=[0.,0.,0.,0.,0.,0.];
+real[int] lagmax=[0.,0.,0.,0.,0.,0.]; //Cotas para el multiplicador de lagrange 
+real E;
+real E1;
+int inddico;
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+mesh3 Th;
+mesh3 ThH;
+Th=readmesh3("Th.mesh");
+ThH=readmesh3("ThH.mesh");
+plot(Th);
+fespace Vh(Th,P2);
+fespace Vh1(ThH,P2);
+
+//Definimos constantes
+
+real he=0.0, s1=-0.11; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] t = [0.,0.,0.,0.,0.5,0.5]; //inicializar t
+real[int] told = [0.,0.,0.,0.,0.5,0.5]; 
+//Defino los vectores normales interiores
+
+macro nuC1 [1., 0., 0.] //
+macro nuC2 [0., 1., 0.] //
+macro nuC3 [0., 0., 1.] //
+macro nuC4 [-1., 0., 0.] //
+macro nuC5 [0., -1., 0.] //
+macro nuC6 [0., 0., -1.] //
+
+//defino el vector de magnetizacion
+macro m [m1, m2, m3]//
+macro e [t[0]+t[1],t[2]+t[3],t[4]+t[5]];
+
+//Definimos las variables de cada espacio 
+
+Vh u, v, um1, um2, um3;
+Vh1 salida, ui, vi, wi;
+
+//Definimos el funcional y su gradiente, así como los terminos de las constricciones. 
+func real J(real[int] & t)
+{
+  real m1=t[0]-t[1];
+  real m2=t[2]-t[3];
+  real m3=t[4]-t[5];
+
+//Calculamos solo en numero de region= numero de procesador  
+
+varf Poisson(u,v) = 
+   int3d(Th)(dx(u)*dx(v)+dy(u)*dy(v)+dz(u)*dz(v)) 
+  +int2d(Th,311)((m'*nuC4)*v)
+  +int2d(Th,312)((m'*nuC1)*v)
+  +int2d(Th,313)((m'*nuC5)*v)
+  +int2d(Th,314)((m'*nuC2)*v)
+  +int2d(Th,315)((m'*nuC6)*v)
+  +int2d(Th,316)((m'*nuC3)*v)
+  +on(1,2,3,4,5,6,u=0);
+
+
+matrix A = Poisson(Vh,Vh,tgv=-1);//  to remove line this BC. 
+set(A,solver=sparsesolver,dparams=dparm, lparams=iparm);
+
+real[int] b = Poisson(0,Vh,tgv=-1);
+ 
+u[] = A^-1*b;
+
+if(mpirank==0) 
+ui=dx(u);
+vi=dy(u);
+wi=dz(u);
+
+//Ahora las energias 
+
+Ep=int3d(ThH)(-ui*m1-vi*m2-wi*m3)/2; //Energía magnética por el campo interior
+Ex=(0.5*(t[0]+t[1])*(t[2]+t[3])*(t[0]/(t[0]+t[1]+1e-12)-t[2]/(t[2]+t[3]+1e-12))^2.
+  +0.5*(t[0]+t[1])*(t[4]+t[5])*(t[0]/(t[0]+t[1]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.
+  +0.5*(t[2]+t[3])*(t[4]+t[5])*(t[2]/(t[2]+t[3]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.); //Energía de exceso 
+
+//Calculamos la energía total
+
+Et=Ep+Ex-he*(t[0]-t[1])*l1*l2*l3-(t[0]+t[1])*s1*l1*l2*l3-(t[2]+t[3])*s1*l1*l2*l3+2*(t[4]+t[5])*s1*l1*l2*l3;
+
+return Et;
+}
+
+func real[int] gradJ(real[int] & t)
+{
+real t01=t[0]+t[1];
+real t23=t[2]+t[3];
+real t45=t[4]+t[5];
+dEt[0]=int2d(Th,312)(u)-int2d(ThH,311)(u)+1./2.*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[1]/(t01+1e-12)^2.))+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[1]/(t01+1e-12)^2.))-he*l1*l2*l3-s1*l1*l2*l3;
+dEt[1]=-int2d(Th,312)(u)+int2d(ThH,311)(u)+1./2.*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+he*l1*l2*l3-s1*l1*l2*l3;
+dEt[2]=int2d(Th,314)(u)-int2d(Th,313)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))+1./2.*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[3]=-int2d(Th,314)(u)+int2d(Th,313)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))+1./2.*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[4]=int2d(Th,316)(u)-int2d(Th,315)(u)+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*(t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t23+1e-12)^2.))+2*s1*l1*l2*l3;
+dEt[5]=-int2d(Th,316)(u)+int2d(Th,315)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+1./2.*(t23*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+2*s1*l1*l2*l3;
+
+return dEt;
+};
+
+
+// Principio del algoritmo 
+real E0=J(t); //Energia inicial 
+int iter;
+real eps=0.05; //Paso 
+
+
+//funcion para la proyecciones
+func real suma(real[int] & tp){
+	
+	return tp[0]+tp[1]+tp[2]+tp[3]+tp[4]+tp[5];
+	}
+
+func real auxpro(real l){
+real[int] tauxs=[t[0],t[1],t[2],t[3],t[4],t[5]];
+
+  tauxs[0]=min(tauxs[0]+l,1.);
+  tauxs[0]=max(tauxs[0]+l,0.);
+  tauxs[1]=min(tauxs[1]+l,1.);
+  tauxs[1]=max(tauxs[1]+l,0.);
+
+  tauxs[4]=min(tauxs[4]+l,1.);
+  tauxs[4]=max(tauxs[4]+l,0.);
+  tauxs[5]=min(tauxs[5]+l,1.);
+  tauxs[5]=max(tauxs[5]+l,0.);
+
+//theta2+ y theta2-
+  tauxs[2]=0.;
+  tauxs[2]=0.;
+  tauxs[3]=0.;
+  tauxs[3]=0.;
+  
+return (suma(tauxs)-1) ;
+
+}	
+	
+func real dicotomia(real l){
+real a=0.0;
+real b=1.0;
+real mu1=0.00011;
+real taux = l;
+real value = auxpro(taux); 
+if(abs(value) < 0.0000001){
+	return taux;
+	}
+	
+	if(value < 0){
+		a= taux;
+			while( value < 0 ){
+			taux = taux + mu1;
+			mu1 = mu1*1.2;
+			value = auxpro(taux);
+			};
+		b = taux;
+		}
+	
+	else{
+		b= taux;
+			while( value > 0 ){
+			taux = taux - mu1;
+			mu1 = mu1*1.2;
+			value = auxpro(taux);
+			};
+		a = taux;
+		}
+
+value = auxpro(taux);
+while(abs(value) > 0.0000001){	
+	taux = 0.5*(a+b);
+	value = auxpro(taux);
+	if(value <= 0){
+		a = taux;
+		}
+	else{
+		b=taux;
+		}	
+	
+	}
+
+
+return taux;
+};	
+
+func real[int] proyeccion(real[int] & tt, real l){
+real[int] tauxs=[tt[0],tt[1],tt[2],tt[3],tt[4],tt[5]];
+	
+  tauxs[0]=min(tauxs[0]+l,1.);
+  tauxs[0]=max(tauxs[0]+l,0.);
+  tauxs[1]=min(tauxs[1]+l,1.);
+  tauxs[1]=max(tauxs[1]+l,0.);
+
+  tauxs[4]=min(tauxs[4]+l,1.);
+  tauxs[4]=max(tauxs[4]+l,0.);
+  tauxs[5]=min(tauxs[5]+l,1.);
+  tauxs[5]=max(tauxs[5]+l,0.);
+
+//theta2+ y theta2-
+  tauxs[2]=0.;
+  tauxs[2]=0.;
+  tauxs[3]=0.;
+  tauxs[3]=0.;
+	
+	return tauxs;
+	}
+
+/////////////////////
+
+/////metodo del gradiente con paso variable//////////
+for(iter=1; iter<niter; iter=iter+1){
+ cout <<"Iteration " <<iter <<" ----------------------------------------" <<endl;
+  
+  // Nos movemos en direccion del gradiente e imponemos las cotas
+  told = t;
+  t=t-eps*gradJ(t);
+  
+  //proyeccion al espacion donde la suma(t)=1 y t[2]=t[3]=0
+  real mlagra = dicotomia(0.0);
+  t = proyeccion(t,mlagra);
+  ///////
+  
+  E=J(t);
+
+if( E < E0 ){
+	E0 = E;
+	told = t;
+	
+	eps = eps*1.2;
+	}
+else{
+	t= told;
+	eps = eps/1.8;
+	}
+
+if(eps < 10^-12){
+	break;
+	}
+   cout << "suma(t) =" << suma(t)<< endl; 
+    cout << "Energia =" << E0<< endl; 
+};
+
+cout<<"minimo encontrado es en"<<endl;
+ cout << "t =" << t<< endl; 
+    cout << "la Energia =" << E0<< endl; 
+

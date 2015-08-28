@@ -1,0 +1,259 @@
+//Problema de msma's en 3D en paralelo 
+
+//Llamamos a las librerias necesarias
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"
+load "ff-Ipopt"
+
+verbosity=0;
+load "msh3"
+load "hips_FreeFem"
+
+int[int] iparm(16);
+real[int] dparm(6);
+iparm=-1;
+dparm=-1;
+
+//Constantes del algoritmo 
+int niter=30; //Número máximo de iteraciones
+real[int] lagrange=[1.,1.,1.,1.,1.,1.]; // Multiplicador de Lagrange para la restriccion de t
+real[int] lagmin=[0.,0.,0.,0.,0.,0.];
+real[int] lagmax=[1.,1.,1.,1.,1.,1.]; //Cotas para el multiplicador de lagrange 
+real E;
+real E1;
+int inddico;
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+mesh3 Th;
+mesh3 ThH;
+Th=readmesh3("Th.mesh");
+ThH=readmesh3("ThH.mesh");
+plot(Th);
+fespace Vh(Th,P2);
+fespace Vh1(ThH,P2);
+
+//Definimos constantes
+
+real he=0.0, s1=-0.11; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] t = [0.,0.,0.,0.,0.5,0.5]; //inicializar t
+
+//Defino los vectores normales interiores
+
+macro nuC1 [1., 0., 0.] //
+macro nuC2 [0., 1., 0.] //
+macro nuC3 [0., 0., 1.] //
+macro nuC4 [-1., 0., 0.] //
+macro nuC5 [0., -1., 0.] //
+macro nuC6 [0., 0., -1.] //
+
+//defino el vector de magnetizacion
+macro m [m1, m2, m3]//
+macro e [t[0]+t[1],t[2]+t[3],t[4]+t[5]];
+
+//Definimos las variables de cada espacio 
+
+Vh u, v, um1, um2, um3;
+Vh1 salida, ui, vi, wi;
+
+//Definimos el funcional y su gradiente, así como los terminos de las constricciones. 
+func real J(real[int] & t)
+{
+  real m1=t[0]-t[1];
+  real m2=t[2]-t[3];
+  real m3=t[4]-t[5];
+
+//Calculamos solo en numero de region= numero de procesador  
+
+varf Poisson(u,v) = 
+   int3d(Th)(dx(u)*dx(v)+dy(u)*dy(v)+dz(u)*dz(v)) 
+  +int2d(Th,311)((m'*nuC4)*v)
+  +int2d(Th,312)((m'*nuC1)*v)
+  +int2d(Th,313)((m'*nuC5)*v)
+  +int2d(Th,314)((m'*nuC2)*v)
+  +int2d(Th,315)((m'*nuC6)*v)
+  +int2d(Th,316)((m'*nuC3)*v)
+  +on(1,2,3,4,5,6,u=0);
+
+
+matrix A = Poisson(Vh,Vh,tgv=-1);//  to remove line this BC. 
+set(A,solver=sparsesolver,dparams=dparm, lparams=iparm);
+
+real[int] b = Poisson(0,Vh,tgv=-1);
+ 
+u[] = A^-1*b;
+
+if(mpirank==0) 
+ui=dx(u);
+vi=dy(u);
+wi=dz(u);
+
+//Ahora las energias 
+
+Ep=int3d(ThH)(-ui*m1-vi*m2-wi*m3)/2; //Energía magnética por el campo interior
+Ex=(0.5*(t[0]+t[1])*(t[2]+t[3])*(t[0]/(t[0]+t[1]+1e-12)-t[2]/(t[2]+t[3]+1e-12))^2.
+  +0.5*(t[0]+t[1])*(t[4]+t[5])*(t[0]/(t[0]+t[1]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.
+  +0.5*(t[2]+t[3])*(t[4]+t[5])*(t[2]/(t[2]+t[3]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.); //Energía de exceso 
+
+//Calculamos la energía total
+
+Et=Ep+Ex-he*(t[0]-t[1])*l1*l2*l3-(t[0]+t[1])*s1*l1*l2*l3-(t[2]+t[3])*s1*l1*l2*l3+2*(t[4]+t[5])*s1*l1*l2*l3;
+
+return Et;
+}
+
+func real[int] gradJ(real[int] & t)
+{
+real t01=t[0]+t[1];
+real t23=t[2]+t[3];
+real t45=t[4]+t[5];
+dEt[0]=int2d(Th,312)(u)-int2d(ThH,311)(u)+1./2.*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[1]/(t01+1e-12)^2.))+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[1]/(t01+1e-12)^2.))-he*l1*l2*l3-s1*l1*l2*l3;
+dEt[1]=-int2d(Th,312)(u)+int2d(ThH,311)(u)+1./2.*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+he*l1*l2*l3-s1*l1*l2*l3;
+dEt[2]=int2d(Th,314)(u)-int2d(Th,313)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))+1./2.*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[3]=-int2d(Th,314)(u)+int2d(Th,313)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))+1./2.*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[4]=int2d(Th,316)(u)-int2d(Th,315)(u)+1./2.*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*(t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t23+1e-12)^2.))+2*s1*l1*l2*l3;
+dEt[5]=-int2d(Th,316)(u)+int2d(Th,315)(u)+1./2.*(t01*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+1./2.*(t23*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+2*s1*l1*l2*l3;
+
+return dEt;
+};
+
+
+// Principio del algoritmo 
+real E0=J(t); //Energia inicial 
+int iter;
+real eps=0.05; //Paso 
+
+for(iter=1; iter<niter; iter=iter+1){
+ cout <<"Iteration " <<iter <<" ----------------------------------------" <<endl;
+  
+  // Nos movemos en direccion del gradiente e imponemos las cotas
+  t=t-eps*gradJ(t);
+
+  t[0]=min(t[0]+lagrange[0],1.);
+  t[0]=max(t[0]+lagrange[0],0.);
+  t[1]=min(t[1]+lagrange[1],1.);
+  t[1]=max(t[1]+lagrange[1],0.);
+
+  t[4]=min(t[4]+lagrange[4],1.);
+  t[4]=max(t[4]+lagrange[4],0.);
+  t[5]=min(t[5]+lagrange[5],1.);
+  t[5]=max(t[5]+lagrange[5],0.);
+
+//theta2+ y theta2-
+  t[2]=0.;
+  t[2]=0.;
+  t[3]=0.;
+  t[3]=0.;
+
+//////////////////////////////////////////// 
+// Encuentra el intervalo para encontrar //
+// el valor del multiplicador de Lagrange //
+///////////////////////////////////////////
+  E=J(t) ;
+  E1=E ;
+
+  if (E1 < E0){
+   lagmin = lagrange ;
+   while (E < E0){ 
+      lagrange = lagrange*(1./2.);
+      t=t-eps*gradJ(t);
+
+      t[0]=min(t[0]+lagrange[0],1.);
+      t[0]=max(t[0]+lagrange[0],0.);
+      t[1]=min(t[1]+lagrange[1],1.);
+      t[1]=max(t[1]+lagrange[1],0.);
+
+      t[4]=min(t[4]+lagrange[4],1.);
+      t[4]=max(t[4]+lagrange[4],0.);
+      t[5]=min(t[5]+lagrange[5],1.);
+      t[5]=max(t[5]+lagrange[5],0.);
+
+    //theta2+ y theta2-
+      t[2]=0.;
+      t[2]=0.;
+      t[3]=0.;
+      t[3]=0.;
+
+      E=J(t);
+};
+   lagmax = lagrange ;
+};
+//
+if (E1 > E0)
+{
+   lagmax = lagrange ;
+   while (E > E0)
+{
+      lagrange = 1.2*lagrange ;
+      t=t-eps*gradJ(t);
+
+      t[0]=min(t[0]+lagrange[0],1.);
+      t[0]=max(t[0]+lagrange[0],0.);
+      t[1]=min(t[1]+lagrange[1],1.);
+      t[1]=max(t[1]+lagrange[1],0.);
+
+      t[4]=min(t[4]+lagrange[4],1.);
+      t[4]=max(t[4]+lagrange[4],0.);
+      t[5]=min(t[5]+lagrange[5],1.);
+      t[5]=max(t[5]+lagrange[5],0.);
+
+    //theta2+ y theta2-
+      t[2]=0.;
+      t[2]=0.;
+      t[3]=0.;
+      t[3]=0.;
+
+      E=J(t);
+
+};
+   lagmin = lagrange ;
+};
+//
+if (E == E0) 
+{
+   lagmin = lagrange ;
+   lagmax = lagrange ;
+};
+
+
+///////////////////////////////////////////////////////////////////
+// Dicotmia para encontrar el valo del multiplicador de lagrange //
+///////////////////////////////////////////////////////////////////
+inddico=0;
+while ((abs(1.-E/E0)) > 0.000001)
+{
+    lagrange = lagmax*0.5 +lagmin*0.5;
+    t=t-eps*gradJ(t);
+
+    t[0]=min(t[0]+lagrange[0],1.);
+    t[0]=max(t[0]+lagrange[0],0.);
+    t[1]=min(t[1]+lagrange[1],1.);
+    t[1]=max(t[1]+lagrange[1],0.);
+
+    t[4]=min(t[4]+lagrange[4],1.);
+    t[4]=max(t[4]+lagrange[4],0.);
+    t[5]=min(t[5]+lagrange[5],1.);
+    t[5]=max(t[5]+lagrange[5],0.);
+
+  //theta2+ y theta2-
+    t[2]=0.;
+    t[2]=0.;
+    t[3]=0.;
+    t[3]=0.;
+
+    E=J(t);
+
+   inddico=inddico+1;
+   if (E < E0) 
+      {lagmin = lagrange ;} ;
+   if (E > E0)
+      {lagmax = lagrange ;} ;
+};
+    cout << "Energia =" << E<< endl; 
+};
+

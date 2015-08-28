@@ -1,0 +1,105 @@
+//Solucion de dispersion de un metafluido acustico,evolucion en el tiempo 
+
+// Definimos constantes y la función de la onda incidente
+verbosity=0;
+real alpha=2, m=10, r=0.5, num=1, mbar=2, q=1, k1=1, k2=0;
+real w=3, dt=0.1, Tf=100, c=10; 
+// real kx=num, ky=m+k;
+//real a1=(r+m*(1-r))+(-(r*((m-1)^2)*(1-r))/(1-r+m*r)), b1=(r+m*(1-r)), k1=((alpha^2)*r+(1-r)*m),k2=k;
+real a1=-1,b1=-1,d1=0,c1=0;
+int nharm= 10; // Numero de armonicos
+
+//Creando el dominio y malla
+
+border a(t=0,30){x=t; y=0; label=1;};
+border b(t=0,2*pi){x=30; y=t; label=2;};
+border c2(t=0,30){x=30-t; y=2*pi; label=3;};
+border d(t=0,2*pi){x=0; y=2*pi-t; label=4;};
+border e(t=0,2*pi){x=5; y=t; label=5;};
+border g(t=0,2*pi){x=10; y=t; label=6;};
+
+int n=240;
+mesh Th=buildmesh(a(n)+b(n)+c2(n)+d(n)+e(n)+g(n));
+
+fespace Ph(Th,P0); //Definimos el espacio de funciones continuas a pedazos
+fespace Vh(Th,P2,periodic=[[1,x],[3,x]]); //Definimos el espacio de funciones periodicas en las fronteras 3 y 1
+fespace Vhh(Th,P2);
+
+Vh<complex> u0=0, u1=0, u; 
+
+Ph reg=region; //Llamamos a la función característica
+//Definimos cada subdominio
+
+int ncen=reg(6,1);
+int nder=reg(12,1);
+int nizq=reg(3,1);
+
+//Definimos los coeficientes con funciones caracteriticas
+Ph n1=-1+(a1+1)*(region==ncen);
+Ph n2=-1+(b1+1)*(region==ncen); 
+Ph n4=(d1+c1)*(region==ncen);
+
+//Empezamos el loop en el tiempo
+int kk=0;
+for (real t=0.; t<Tf; t+=dt)
+{
+func f=-1i*num*exp(1i*(k1*x+k2*y-w*t));
+
+varf vP(u,v)=int2d(Th)(n1*dx(u)*conj(dx(v)))+int2d(Th)(n4*(-1i*k2*dx(u)*conj(v)+dy(u)*conj(dx(v))))+int2d(Th)(n2*((k2^2)*u*conj(v)-2i*k2*dy(u)*conj(v)+dy(u)*conj(dy(v))))-int2d(Th)(((u)/(c*dt)^2)*conj(v))-int2d(Th)(((-2*u1)/(c*dt)^2)*conj(v))-int2d(Th)(((u0)/(c*dt)^2)*conj(v))+on(4, u=f);
+
+varf vF(u,v)=on(4, u=f);
+matrix<complex> A=vP(Vh,Vh); //la matriz de elemento de frontera
+
+complex[int] bb=vF(0,Vh);
+
+{// para limpiar todas las variables locales al final del bloque 
+//calculo de la matriz de elemento de frontera
+int kdfBEM=0; 
+int[int] IdfB2Vh(0:Vh.ndof-1);//para numerar IdfB2Vh[i]==i
+{
+	int lbord=2; // etiquetamos la frontera del m\u00e9todo BEM
+	varf vbord(u1,v1)=on(lbord, u1=y-10); //valores negativos ..
+	real[int] xb=vbord(0,Vh,tgv=1);
+	sort(xb,IdfB2Vh); //ordenar el arreglo xb y IdfB2Vh
+	xb=xb ? 1 : 0;// poner 1 si no es cero
+	kdfBEM=xb.sum+0.5; // n\u00famero de profundidad de campo en la frontera
+	IdfB2Vh.resize(kdfBEM); // IdfB2Vh[i] -> numero de profundidad de campo de la forntera
+	}
+	// fin de c\u00e1lculo de numeraci\u00f3n
+	// entonces IdfB2Vh[ibem]=iVh donde ibem es una forma diferencial en el elemento de frontera, y iVh es una forma diferencial en el espacio Vh
+	// .... c\u00e1lculo de la matr\u00edz completa de frontera ....
+		complex[int,int] ABemFull(kdfBEM,kdfBEM); // la matriz completa del metodo de la numeracion elemento de frontera
+		ABemFull=0;// conjunto de 0
+		real perio=2*pi;
+		// Uso de la formula de cuadratura de orden mayor..
+		for (int n=-nharm; n<=nharm; ++n)
+		{
+			varf vWn(u,w)=int1d(Th, 2,qforder=10)(exp(-2*pi*1i*(n)*y)*conj(w));
+			complex[int] wwn(kdfBEM);
+			complex[int] wn=vWn(0,Vh);
+			wwn=wn(IdfB2Vh); // wwn(i)=wn(IdfB2Vh(i)) i=0 to wwn.n-1
+				complex Gs=+2.*pi*abs(n/perio/perio);
+			ABemFull += Gs*wwn*wwn';
+		}
+
+matrix<complex> ABem=ABemFull(IdfB2Vh^-1,IdfB2Vh^-1); //Build the sparse BEm matrix
+//ABem(IdfB2Vh(ib), IdfB2Vh(jb))=ABemFull(ib,jb)
+A=A+ABem;
+}// para limpiar todas las variables locales al final del bloque. ABem ABemFUll
+set(A,solver=UMFPACK);
+u[]=A^-1*bb;
+Vhh<complex> s=u*(exp(1i*k2*y));
+Vhh sr=real(s), si=imag(s);
+ if ( !(kk % 20))    
+        plot(sr,cmm="t="+t+"[sec]",dim=2,fill=false,value=true,wait=1); 
+    kk+=1;
+Vh<complex> u0=u1;
+Vh<complex> u1=u;
+}
+
+
+
+
+
+
+

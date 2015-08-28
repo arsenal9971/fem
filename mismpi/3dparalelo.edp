@@ -1,0 +1,89 @@
+//Problema de msma's en 3D en paralelo 
+
+//Llamamos a las librerias necesarias
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"                                                               
+
+verbosity=0;
+load "msh3"
+load "hips_FreeFem"
+
+int[int] iparm(16);
+real[int] dparm(6);
+iparm=-1;
+dparm=-1;
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+mesh3 Th;
+mesh3 ThH;
+Th=readmesh3("Th.mesh");
+ThH=readmesh3("ThH.mesh");
+plot(Th);
+fespace Vh(Th,P2);
+fespace Vh1(ThH,P2);
+
+//Definimos constantes
+
+real he=0.0, s1=-0.11; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] c=[0.,0.]; //inicializamos la constriccion 
+real[int] t = [1.,0.,0.,0.,0.,0.]; //inicializar z
+real theta=0.*pi/180.;
+
+
+//Defino los vectores normales interiores
+
+macro nuC1 [1., 0., 0.] //
+macro nuC2 [0., 1., 0.] //
+macro nuC3 [0., 0., 1.] //
+macro nuC4 [-1., 0., 0.] //
+macro nuC5 [0., -1., 0.] //
+macro nuC6 [0., 0., -1.] //
+
+//defino el vector de magnetizacion
+macro m [m1, m2, m3]//
+macro e [t[0]+t[1],t[2]+t[3],t[4]+t[5]];
+
+//Definimos las variables de cada espacio 
+
+Vh u, v, um1, um2, um3;
+Vh1 salida, ui, vi, wi;
+
+//Definimos el funcional y su gradiente, así como los terminos de las constricciones. 
+
+
+  real m1=t[0]-t[1];
+  real m2=t[2]-t[3];
+  real m3=t[4]-t[5];
+
+//Calculamos solo en numero de region= numero de procesador  
+
+varf Poisson(u,v) = 
+   int3d(Th)(dx(u)*dx(v)+dy(u)*dy(v)+dz(u)*dz(v)) 
+  +int2d(Th,311)((m'*nuC4)*v)
+  +int2d(Th,312)((m'*nuC1)*v)
+  +int2d(Th,313)((m'*nuC5)*v)
+  +int2d(Th,314)((m'*nuC2)*v)
+  +int2d(Th,315)((m'*nuC6)*v)
+  +int2d(Th,316)((m'*nuC3)*v)
+  +on(1,2,3,4,5,6,u=0);
+
+
+matrix A = Poisson(Vh,Vh,tgv=-1);//  to remove line this BC. 
+set(A,solver=sparsesolver,dparams=dparm, lparams=iparm);
+
+real[int] b = Poisson(0,Vh,tgv=-1);
+ 
+u[] = A^-1*b;
+
+//if(mpirank==0)
+
+cout<< "u = "<< u<<endl;
+//Graficamos 
+plot(u, dim=3);
+

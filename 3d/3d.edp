@@ -1,0 +1,159 @@
+// Problema de msma's en 3D
+
+//Llamamos a las librerias necesarias
+load "ff-Ipopt"
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"                                                               
+include "MeshSurface.idp"
+
+//Definimos el archivo de salida
+
+
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+//Definimos los dos mallados
+
+
+real hs = 0.8; 
+int[int]  N=[4/hs,8/hs,11.5/hs];
+real [int,int]  B=[[-l1/2.,l1/2.],[-l2/2.,l2/2.],[-l3/2.,l3/2.]];
+int [int,int]  L=[[311,312],[313,314],[315,316]];
+mesh3 ThH = SurfaceHex(N,B,L,1);
+mesh3 ThSd =Sphere(5,1,310,1); 
+
+ThSd=movemesh3(ThSd,transfo=[x/sqrt(x^2 + y^2 + z^2),y/sqrt(x^2 + y^2 + z^2),z/sqrt(x^2 + y^2 + z^2)]);
+ThSd=movemesh3(ThSd,transfo=[10*x,10*y,10*z]);
+
+mesh3 ThHS=ThH+ThSd;
+medit("ThHS", ThHS);
+
+//Definimos el mallado exterior y su espacio de elemento finito 
+mesh3 Th = tetg(ThHS,switch="pqaAAYYQ");
+medit("Box in a Sphere",Th);
+plot(Th);
+fespace Vh(Th,P2);
+
+//Definimos el mallado interior y su espacio de elemento finito 
+
+mesh3 Th1 = tetg(ThH,switch="pqaAAYYQ");
+medit("Box",Th1);
+plot(Th1);
+fespace Vh1(Th1,P2);
+
+//Definimos constantes
+
+real he=0.175, s1=-0.09; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] c=[0.,0.]; //inicializamos la constriccion 
+real[int] t = [0.,0.,0.,0.,0.500016,0.499984]; //inicializar z
+real theta=0.*pi/180.;
+
+
+
+//Defino los vectores normales interiores
+
+macro nuC1 [1., 0., 0.] //
+macro nuC2 [0., 1., 0.] //
+macro nuC3 [0., 0., 1.] //
+macro nuC4 [-1., 0., 0.] //
+macro nuC5 [0., -1., 0.] //
+macro nuC6 [0., 0., -1.] //
+
+//defino el vector de magnetizacion
+macro m [m1, m2, m3] //
+macro e [t[0]+t[1],t[2]+t[3],t[4]+t[5]];
+
+//Definimos las variables de cada espacio 
+
+Vh u, v, um1, um2, um3;
+Vh1 salida, ui, vi, wi;
+
+//Inicializamos el funcional
+
+func real J(real[int] & t)
+{
+	real m1=t[0]-t[1];
+	real m2=t[2]-t[3];
+	real m3=t[4]-t[5];
+
+//Resolvemos las ecuaciones en el punto 
+
+solve Poisson(u,v) = 
+	 int3d(Th)(dx(u)*dx(v)+dy(u)*dy(v)+dz(u)*dz(v)) 
+	+int2d(Th,311)((m'*nuC4)*v)
+	+int2d(Th,312)((m'*nuC1)*v)
+	+int2d(Th,313)((m'*nuC5)*v)
+	+int2d(Th,314)((m'*nuC2)*v)
+	+int2d(Th,315)((m'*nuC6)*v)
+	+int2d(Th,316)((m'*nuC3)*v)
+	+on(310,u=0);
+ui=dx(u);
+vi=dy(u);
+wi=dz(u);
+
+//Ahora las energias 
+
+Ep=int3d(Th1)(-ui*m1-vi*m2-wi*m3)/2; //Energía magnética por el campo interior
+Ex= l1*l2*l3*(0.5*(t[0]+t[1])*(t[2]+t[3])*(t[0]/(t[0]+t[1]+1e-12)-t[2]/(t[2]+t[3]+1e-12))^2.
+	+0.5*(t[0]+t[1])*(t[4]+t[5])*(t[0]/(t[0]+t[1]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.
+	+0.5*(t[2]+t[3])*(t[4]+t[5])*(t[2]/(t[2]+t[3]+1e-12)-t[4]/(t[4]+t[5]+1e-12))^2.); //Energía de exceso 
+
+//Calculamos la energía total
+
+Et=Ep+Ex-he*(t[0]-t[1])*l1*l2*l3-(t[0]+t[1])*s1*l1*l2*l3-(t[2]+t[3])*s1*l1*l2*l3+2*(t[4]+t[5])*s1*l1*l2*l3;
+cout<<t<<endl;
+cout<<"aqui el gradiente:" <<dEt<<endl;
+cout<<Et<< " "<< Ex<<endl; 
+return Et;
+}
+
+func real[int] gradJ(real[int] & t)
+{
+real t01=t[0]+t[1];
+real t23=t[2]+t[3];
+real t45=t[4]+t[5];
+dEt[0]=-int3d(Th1)(dx(u))+1./2.*l1*l2*l3*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[1]/(t01+1e-12)^2.))+1./2.*l1*l2*l3*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[1]/(t01+1e-12)^2.))-he*l1*l2*l3-s1*l1*l2*l3;
+dEt[1]=int3d(Th1)(dx(u))+1./2.*l1*l2*l3*(t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*l1*l2*l3*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+he*l1*l2*l3-s1*l1*l2*l3;
+dEt[2]=-int3d(Th1)(dy(u))+1./2.*l1*l2*l3*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))+1./2.*l1*l2*l3*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(-t[3]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[3]=int3d(Th1)(dy(u))+1./2.*l1*l2*l3*(t01*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))^2.+2.*t01*t23*(t[0]/(t01+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))+1./2.*l1*l2*l3*(t45*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))^2.+2.*t45*t23*(t[4]/(t45+1e-12)-t[2]/(t23+1e-12))*(t[2]/(t23+1e-12)^2.))-s1*l1*l2*l3;
+dEt[4]=-int3d(Th1)(dz(u))+1./2.*l1*l2*l3*(t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t01+1e-12)^2.))+1./2.*l1*l2*l3*(t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(-t[0]/(t23+1e-12)^2.))+2*s1*l1*l2*l3;
+dEt[5]=int3d(Th1)(dz(u))+1./2.*l1*l2*l3*(t01*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))^2.+2.*t01*t45*(t[0]/(t01+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+1./2.*l1*l2*l3*(t23*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))^2.+2.*t23*t45*(t[2]/(t23+1e-12)-t[4]/(t45+1e-12))*(t[4]/(t45+1e-12)^2.))+2*s1*l1*l2*l3;
+
+return dEt;
+}
+
+//Definimos c
+
+func real[int] C(real[int] & t)
+{
+c[0]=t[0]+t[1]+t[2]+t[3]+t[4]+t[5]-1;
+c[1]=(t[0]+t[1])*(t[2]+t[3])*(t[4]+t[5]);
+return c;
+}
+
+
+//Definomos el jacobiano de c
+
+matrix jacCBuffer;
+
+func matrix jacC(real[int] & t)
+{
+	jacCBuffer=[[1.,1.,1.,1.,1.,1.],[(t[2]+t[3])*(t[4]+t[5]),(t[2]+t[3])*(t[4]+t[5]),(t[0]+t[1])*(t[4]+t[5]),(t[0]+t[1])*(t[4]+t[5]),(t[0]+t[1])*(t[2]+t[3]),(t[0]+t[1])*(t[2]+t[3])]];
+	return jacCBuffer;
+}
+
+real[int] zlb=[0.,0.,0.,0.,0.,0.];
+real[int] zub=[1.,1.,1.,1.,1.,1.];
+
+real[int] clb=[0.,0.],cub=[0.,0.];
+
+IPOPT(J,gradJ,C,jacC,t,lb=zlb,ub=zub,clb=clb,cub=cub, linesearch=1 , maxiter=3000);
+
+cout << t << " " << t[0]+t[1]+t[2]+t[3]+t[4]+t[5] << " " << Ep<< " "<< Ex << " "<< Et << " " << dEt << endl;
+
+plot(u, dim=3);

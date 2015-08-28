@@ -1,0 +1,38 @@
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"   
+load "msh3"
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+//Definimos los dos mallados
+
+//Definimos las etiquetas
+int [int,int]  L1=[[311,312],[313,314],[315,316]];
+int [int,int]  L2=[[1,2],[3,4],[5,6]];
+
+
+//Creacion del dominio interior 
+int n=30;
+border a(t=0,l1){x=t; y=0; label=1;};
+border d(t=0,l2){x=l1; y=t; label=2;};
+border e(t=0,l1){x=l1-t; y=l2; label=3;};
+border f(t=0,l2){x=0; y=l2-t; label=4;};
+mesh Th2=buildmesh(a(n)+d(n)+e(n)+f(n));
+//La parte tridimensional 
+int[int] rup=[0,L1(2,1)],  rdown=[0,L1(2,0)], rmid=[1,L1(1,0),2,L1(0,1),3,L1(1,1),4,L1(0,0)];
+real zmin=0,zmax=l3;
+mesh3 ThH=buildlayers(Th2,n,zbound=[zmin,zmax],labelmid=rmid,  reffaceup = rup,reffacelow = rdown);
+
+//Creacion del dominio exterior 
+
+int n2=50;
+mesh Th3=square(n2,n2,[-100+200*x,-100+200*y]);
+int[int] rup1=[0,L2(2,1)],  rdown1=[0,L2(2,0)], rmid1=[1,L2(1,0),2,L2(0,1),3,L2(1,1),4,L2(0,0)];
+real zmin1=-100,zmax1=100;
+mesh3 ThSd=buildlayers(Th3,n2,zbound=[zmin1,zmax1],labelmid=rmid1, reffaceup = rup1 ,reffacelow = rdown1);
+
+mesh3 ThHS=ThH+ThSd;
+medit("ThHS", ThHS);

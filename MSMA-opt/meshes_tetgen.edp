@@ -1,0 +1,102 @@
+ load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"                                                               
+load "msh3"
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+//Definimos los dos mallados
+
+//Definimos las etiquetas
+int [int,int]  L1=[[311,312],[313,314],[315,316]];
+int [int,int]  L2=[[1,2],[3,4],[5,6]];
+
+
+//Creacion del dominio interior 
+int n=30;
+int m = 30;
+int k = 30;
+
+
+//facetas del paralepipedo
+mesh Thsq1 = square(n,k,[l1*x,l2*y]);
+mesh Thsq2 = square(n,m ,[l1*x,l3*y]);
+mesh Thsq3 = square(k,m ,[l2*x,l3*y]);
+
+int[int] ref31h = [0,L1(2,1)];
+int[int] ref31b = [0,L1(2,0)];
+
+//caras del plano (x,y)
+mesh3 Thh31h = movemesh23(Thsq1,transfo=[x,y,l3],label=ref31h,orientation=1);
+mesh3 Thh31b = movemesh23(Thsq1,transfo=[x,y,0],label=ref31b,orientation=-1);   
+
+
+int[int] ref32h = [0,L1(1,1)];
+int[int] ref32b = [0,L1(1,0)];
+
+//caras en plano (x,z)
+mesh3 Thh32h = movemesh23(Thsq2,transfo=[x,l2,y],label=ref32h,orientation=-1);  
+mesh3 Thh32b = movemesh23(Thsq2,transfo=[x,0,y],label=ref32b,orientation=1);
+
+
+int[int] ref33h = [0,L1(0,0)];
+int[int] ref33b = [0,L1(0,1)];
+
+//caras en plano (y,z)
+mesh3 Thh33h = movemesh23(Thsq3,transfo=[l1,x,y],label=ref33h,orientation=1);  
+mesh3 Thh33b = movemesh23(Thsq3,transfo=[0,x,y],label=ref33b,orientation=-1); 
+
+
+
+mesh3 Thh33 = Thh31h+Thh31b+Thh32h+Thh32b+Thh33h+Thh33b;
+
+real[int] domaine = [l1/2.,l2/2.,l3/2.,145,1.0];
+mesh3 ThH = tetg(Thh33,switch="pqaAAYYQ",nbofregions=1,regionlist=domaine); 
+
+
+
+savemesh(ThH,"ThH_tetgen.mesh");
+
+
+//Creacion del dominio exterior 
+
+int n2=10;
+//facetas del paralepipedo
+mesh Tehq1=square(n2,n2,[-100+200*x,-100+200*y]);
+
+int[int] reef31h = [0,L2(2,1)];
+int[int] reef31b = [0,L2(2,0)];
+
+//caras del plano (x,y)
+mesh3 Th31h = movemesh23(Tehq1,transfo=[x,y,100],label=reef31h,orientation=1);
+mesh3 Th31b = movemesh23(Tehq1,transfo=[x,y,-100],label=reef31b,orientation=-1);   
+
+int[int] reef32h = [0,L2(1,1)];
+int[int] reef32b = [0,L2(1,0)];
+
+//caras en plano (x,z)
+mesh3 Th32h = movemesh23(Tehq1,transfo=[x,100,y],label=reef32h,orientation=-1);  
+mesh3 Th32b = movemesh23(Tehq1,transfo=[x,-100,y],label=reef32b,orientation=1);
+
+
+int[int] reef33h = [0,L2(0,0)];
+int[int] reef33b = [0,L2(0,1)];
+
+//caras en plano (y,z)
+mesh3 Th33h = movemesh23(Tehq1,transfo=[100,x,y],label=reef33h,orientation=1);  
+mesh3 Th33b = movemesh23(Tehq1,transfo=[-100,x,y],label=reef33b,orientation=-1); 
+
+
+mesh3 Th33 = Th31h+Th31b+Th32h+Th32b+Th33h+Th33b;
+
+real[int] domaine2 = [0.,0.,0.,145,5000.0];
+mesh3 ThSd = tetg(Th33,switch="pqaAAYYQ",nbofregions=1,regionlist=domaine2); 
+
+savemesh(ThSd,"ThSd_tetgen.mesh");
+
+
+mesh3 Th=ThH+ThSd;
+
+
+savemesh(Th,"Th_tetgen.mesh");
+

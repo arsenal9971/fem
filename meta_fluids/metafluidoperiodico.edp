@@ -1,0 +1,90 @@
+// Solución del problema de un metafluido acústico con condición de frontera periódica en el infinito 
+
+
+// Definimos constantes y la función de la onda incidente
+
+real alpha=2, m=10, r=0.5, num=1, mbar=2, q=1, k1=1, k2=0;
+// real kx=num, ky=m+k;
+func f=-1i*num*exp(1i*(k1*x+k2*y));
+//real a1=(r+m*(1-r))+(-(r*((m-1)^2)*(1-r))/(1-r+m*r)), b1=(r+m*(1-r)), k1=((alpha^2)*r+(1-r)*m),k2=k;
+real a1=-1,b1=-100,d1=0,c1=0, q1=(k1^2+k2^2),q2=(k1^2+k2^2);
+
+int nharm= 10; // N\u00famero de arm\u00f3nicos
+
+//Creando el dominio y malla
+
+border a(t=0,15){x=t; y=0; label=1;};
+border b(t=0,2*pi){x=15; y=t; label=2;};
+border c(t=0,15){x=15-t; y=2*pi; label=3;};
+border d(t=0,2*pi){x=0; y=2*pi-t; label=4;};
+border e(t=0,2*pi){x=5; y=t; label=5;};
+border g(t=0,2*pi){x=10; y=t; label=6;};
+
+int n=60;
+mesh Th=buildmesh(a(n)+b(n)+c(n)+d(n)+e(n)+g(n));
+fespace Ph(Th,P0); //Definimos el espacio de funciones continuas a pedazos
+fespace Vh(Th,P2,periodic=[[1,x],[3,x]]); //Definimos el espacio de funciones peri\u00f3dicas en las fronteras 3 y 1
+fespace Vhh(Th,P2);
+
+Ph reg=region; //Llamamos a la función característica
+//Definimos cada subdominio
+
+int ncen=reg(6,1);
+int nder=reg(12,1);
+int nizq=reg(3,1);
+
+//Definimos los coeficientes con funciones caracter\u00edsticas
+Ph n1=-1+(a1+1)*(region==ncen);
+Ph n2=-1+(b1+1)*(region==ncen); 
+Ph n3=q2+(q1-q2)*(region==ncen);
+Ph n4=(d1+c1)*(region==ncen);
+
+Vh<complex> uref; //la solución de referencia
+
+{//calculo de la solución de referencia en el dominio Grande
+//primero creamos el dominio grande
+
+border a2(t=0,50){x=t; y=0; label=1;};
+border b2(t=0,2*pi){x=50; y=t; label=2;};
+border c2(t=0,50){x=50-t; y=2*pi; label=3;};
+border d2(t=0,2*pi){x=0; y=2*pi-t; label=4;};
+border e2(t=0,2*pi){x=5; y=t; label=5;};
+border g2(t=0,2*pi){x=10; y=t; label=6;};
+
+int nn=100;
+mesh Th1=buildmesh(a2(nn)+b2(nn)+c2(nn)+d2(nn)+e2(nn)+g2(nn));
+
+fespace Ph1(Th1,P0); //Definimos el espacio de funciones continuas a pedazos
+fespace Vh1(Th1,P2,periodic=[[1,x],[3,x]]); //Definimos el espacio de funciones periódicas en las fronteras 3 y 1
+fespace Vhh1(Th1,P2);
+
+Ph1 reg1=region; //Llamamos a la funci\u00f3n caracter\u00edstica
+//Definimos cada subdominio
+
+int ncen1=reg1(6,1);
+int nder1=reg1(40,1);
+int nizq1=reg1(3,1);
+
+//Definimos los coeficientes con funciones caracter\u00edsticas
+Ph1 n11=-1+(a1+1)*(region==ncen1);
+Ph1 n21=-1+(b1+1)*(region==ncen1); 
+Ph1 n31=q2+(q1-q2)*(region==ncen1);
+Ph1 n41=(d1+c1)*(region==ncen1);
+
+Vh1<complex> uu,vv;
+
+problem Metafluido1(uu,vv)=int2d(Th1)(n11*dx(uu)*conj(dx(vv)))+int2d(Th1)(n41*(-1i*k2*dx(uu)*conj(vv)+dy(uu)*conj(dx(vv))))+int2d(Th1)(n21*((k2^2)*uu*conj(vv)-2i*k2*dy(uu)*conj(vv)+dy(uu)*conj(dy(vv))))+int2d(Th1)(n3*uu*conj(vv))-int1d(Th1,4)(f*exp(-1i*k2*y)*conj(vv));//+int1d(Th1,2)(f*exp(-1i*k2*y)*conj(vv));
+
+Metafluido1;
+uref=uu;
+Vhh1<complex> ss=k1*uu*(exp(1i*k2*y))*exp(1i*(k1+k2)*0.75);
+Vhh1 ssr=real(ss), ssi=imag(ss);
+plot(ssr, wait=1, cmm="sol ref / Th1");
+} //para limpiar la memoria
+Vhh<complex> sref=k1*uref*(exp(1i*k2*y))*exp(1i*(k1+k2)*0.75);
+Vhh srefr=real(sref), srefi=imag(sref);
+plot(srefr, wait=1, cmm=" sol ref / Th");
+
+
+
+

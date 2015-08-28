@@ -1,0 +1,250 @@
+// programa para clacular el problema de minimizacion con restricicones
+// el metodo usado esta basado en el algoritmo de Zoutendijk's  
+// la idea es las direcciones permitidas para la minimizacion 
+// dadas las restricciones. Para mas detalles ver: 
+// ver https://www.me.utexas.edu/~jensen/ORMM/supplements/units/nlp_methods/const_opt.pdf
+
+real t1, t2,t3, t4; //las variables a optimizar valores [0,1] 
+int res1,res2,res3,res4; // las variables que permiten determinar que restricciones estan activas valores -1,0,1
+real d1,d2,d3, d4; // las variables de paso para la minimizacion   
+int iter, itermax=4000;
+real[int] Energia(itermax);
+real tau=0.01; // paso para la minimizacion
+real dpn, he, s1;
+
+
+Energia[0]=0;
+s1=0.12;
+he=0.6;
+
+macro tt [t1, t2, t3, t4] //
+macro nn [1., 0., 0., 0.] //
+
+
+// defino las fronteras
+int C1=1, C2=2,C3=3,C4=4, C0=0;
+int ne =60; 
+int ni =60;
+int r=10;
+int i;
+// variable independiente sera el angulo de la magnetizacion
+real h =0.0001; // paso para el calculo del gradiente
+int n=5;
+real[int] Ep(n); // variables para el calculo del gradiente
+real[int] Ex(n); // variables para el excess
+real[int] d(n);
+real m1, m2;
+// Defino los vectores normales interiores 
+//  las fronteras de la malla exterior
+macro nuC1 [1, 0] //
+macro nuC2 [0, 1] //
+macro nuC3 [-1,0] //
+macro nuC4 [0,-1] //
+
+// el vector de magnetizacion
+macro m  [m1, m2 ] //
+macro mp [m1p,m2p] //
+
+// defino el tamaño de la muestra
+real l1=0.5; //tamaño en x 
+real l2=2;// tamaño en y
+// frontera exterior
+border C00(t=0,2.*pi){x=r*cos(t);y=r*sin(t);label=C0;}
+// frontera interior (Obs: hay que parametrizar 
+// bien las fronteras para que los hoyos esten 
+// bien definidos)
+border C11(t=-1,1){x=l1/2;;y=l2/2*t;label=C1;}
+border C12(t=-1,1){x=-l1/2*t;y=l2/2;label=C2;}
+border C13(t=-1,1){x=-l1/2;y=-l2/2*t;label=C3;}
+border C14(t=-1,1){x=l1/2*t;y=-l2/2;label=C4;}
+
+// Creo la malla exterior
+mesh Sh1=buildmesh (C00(ne)	+ C11(ni) + C12(ni) + C13(ni) + C14(ni));
+fespace Vh(Sh1, P1);
+// y las variables necesarias en este espacio
+Vh u,v, um1, um2;
+
+// Creo la malla interior, el espacio de elementos finitos
+mesh Sh2=buildmesh (C11(ni) + C12(ni) + C13(ni) + C14(ni));
+fespace Vh2(Sh2, P1);
+// y las variables necesarias en este espacio
+Vh2 salida, ui, vi, uip, vip; 
+
+
+// inicializo a las t1, t2, t3, t4
+
+t1=5.807737624e-11; t2=1.619815393e-13; t3=0.4999975918; t4=0.5000024081;
+
+for (iter=1; iter<=itermax; iter++){
+// inicializo las restricciones para que 
+// esten inactivas
+res1=0;
+res2=0;
+res3=0;
+res4=0;
+
+//Evaluo las rectricciones 
+if (t1*(1.-t1)<= 0.){
+	if (t1<=0){ 
+		res1=-1.;
+		t1=0;
+	}else{ 
+		res1=1.; 
+		t1=1.;};
+};
+if (t2*(1.-t2)<= 0.){
+	if (t2<=0){ 
+		res2=-1;
+		t2=0.;
+	}else{
+		res2=1.;
+		t2=1.;};	
+};
+if (t3*(1.-t3)<= 0.){
+	if (t3<=0){
+		res3=-1;
+		t3=0.;
+	}else{ 
+		res3=1.;
+		t3=1.;};
+};
+if (t4*(1.-t4)<= 0.){
+	if (t4<=0){ 
+		res4=-1.;
+		t4=0;
+	}else{ 
+		res4=1.;
+		t4=1;};
+};
+
+// reviso los valores de las restricciones
+//cout << " restricciones " << res1 << " , " << res2 << " , " << res3 << ", " << res4 << endl;
+ 
+// Defino los vectores (d1,d2,d3) como el gradiente de la funcion a minimizar
+// en este ejemplo f(t1,t2,t3)=(t1^2+t2^2+(t3-1)^2+(t4-1)^2)/2.
+
+//Aqui obtengo  el gradiente de la energia real. 
+// calculo de los gradientes
+m1=t1-t2;
+m2=t3-t4;
+// resolvemos las ecuaciones en  el punto
+solve Poisson(u,v) = 
+	 int2d(Sh1)(dx(u)*dx(v)+dy(u)*dy(v)) 
+	+int1d(Sh1,C1)((m'*nuC1)*v)
+	+int1d(Sh1,C2)((m'*nuC2)*v)
+	+int1d(Sh1,C3)((m'*nuC3)*v)
+	+int1d(Sh1,C4)((m'*nuC4)*v)
+	+on(C0,u=0);
+ui=dx(u);
+vi=dy(u);
+
+Ep[0]=int2d(Sh2)(-ui*m1-vi*m2)/2;
+
+// Calculo la energia del excess
+if (t1+t2==0 || t3+t4==0){
+	Ex[0]=0;
+	}else{ 
+	Ex[0]=0.5*(t1+t2)*(t3+t4)*(t1/(t1+t2)-t3/(t3+t4))^2.;
+};
+ 
+for (i=1;i<5;i++){
+m1=t1-t2;
+m2=t3-t4;
+if (i==1){ 	
+	m1=m1+h;
+	if (t1+h+t2==0 || t3+t4==0){
+		Ex[i]=0;
+	}else{ 
+		Ex[i]=0.5*(t1+h+t2)*(t3+t4)*((t1+h)/(t1+t2+h)-t3/(t3+t4))^2;
+	};
+};
+if (i==2){
+	m1=m1-h;
+	if (t1+h+t2==0 || t3+t4==0){
+		Ex[i]=0;
+	}else{ 
+		Ex[i]=0.5*(t1+t2+h)*(t3+t4)*(t1/(t1+t2+h)-t3/(t3+t4))^2;
+	};
+};
+if(i==3){
+	m2=m2+h;
+	if (t1+h+t2==0 || t3+t4==0){
+		Ex[i]=0;
+	}else{ 
+		Ex[i]=0.5*(t1+t2)*(t3+t4+h)*((t1)/(t1+t2+h)-(t3+h)/(t3+h+t4))^2;
+	};
+};
+if(i==4){
+	m2=m2-h;
+	if (t1+h+t2==0 || t3+t4==0){
+		Ex[i]=0;
+	}else{ 
+		Ex[i]=0.5*(t1+t2)*(t3+t4+h)*((t1)/(t1+t2+h)-(t3)/(t3+h+t4))^2;
+	};
+};
+solve Poisson2(u,v) = 
+	 int2d(Sh1)(dx(u)*dx(v)+dy(u)*dy(v)) 
+	+int1d(Sh1,C1)((m'*nuC1)*v)
+	+int1d(Sh1,C2)((m'*nuC2)*v)
+	+int1d(Sh1,C3)((m'*nuC3)*v)
+	+int1d(Sh1,C4)((m'*nuC4)*v)
+	+on(C0,u=0);
+
+ui=dx(u);
+vi=dy(u);
+
+Ep[i]=int2d(Sh2)(-ui*m1-vi*m2)/2;
+
+
+
+};
+
+// aqui defino los gradientes.
+ d1=(Ep[1]-Ep[0])/h +(Ex[1]-Ex[0])/h - he + s1;
+ d2=(Ep[2]-Ep[0])/h +(Ex[2]-Ex[0])/h+ he + s1;
+ d3=(Ep[3]-Ep[0])/h +(Ex[3]-Ex[0])/h -2*s1;
+ d4=(Ep[4]-Ep[0])/h +(Ex[4]-Ex[0])/h -2*s1;
+ 
+cout << " valores dex " << (Ex[0]-Ex[1])/h << " , " << (Ex[0]-Ex[2])/h
+ <<" , " << (Ex[0]-Ex[3])/h << " , " << (Ex[0]-Ex[4])/h << endl;
+cout << " valores dstry " << (Ep[0]-Ep[1])/h << " , " << (Ep[0]-Ep[2])/h
+ <<" , " << (Ep[0]-Ep[3])/h << " , " << (Ep[0]-Ep[4])/h << endl;
+
+cout << " norma gradiente " << (d1^2+d2^2+d3^2+d4^2)^0.5 << endl;
+// evaluo si las restricciones estan activas o no
+if (res1*d1>0){ d1=0.; };  
+if (res2*d2>0){ d2=0.; };  
+if (res3*d3>0){ d3=0.; };  
+if (res4*d4>0){ d4=0.; };  
+
+//cout << " paso " << d1 << " , " << d2 << " , " << d3  << endl;
+//t1=max(min(t1+d1*tau,1.),0.);
+//t2=max(min(t2+d2*tau,1.),0.);
+//t3=max(min(t3+d3*tau,1.),0.);
+//t4=max(min(t4+d4*tau,1.),0.);
+
+t1=t1-d1*tau;
+t2=t2-d2*tau;
+t3=t3-d3*tau;
+t4=t4-d4*tau;
+// proyecto el resultado sobre la 
+// restriccion t1+t2+t3+t4=1
+
+dpn= (tt-nn)'*nn;
+
+//vuelvo a poryectar entre 0 y 1.
+t1= max(min(t1-dpn/2.,1.),0.);
+t2= max(min(t2-dpn/2.,1.),0.);
+t3= max(min(t3-dpn/2.,1.),0.);
+t4= max(min(t4-dpn/2.,1.),0.);
+Energia[iter]=Ep[0]+Ex[0]-h*m1;
+cout << " valores " << t1 << " , " << t2 <<" , " << t3 << " , " << t4 << " , " << t1+t2+t3+t4 << endl;
+cout << " E[" << iter<<"]="<< Ep[0] << " + " << Ex[0] << " m =["<< t1-t2 <<", "<< t3-t4 <<"] " << endl;
+
+// si la energia se estabiliza termino las iteracioens
+if (abs(Energia[iter]-Energia[iter-1])<= 1e-8 && iter<itermax){
+cout << "Energia total =" << Energia[iter]<<" , " << Energia[iter-1] << endl;
+ break;};
+if (iter==itermax) { cout << " Maximo No. de iteraciones " << iter << endl;}
+}
+plot(u); 

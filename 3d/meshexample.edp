@@ -1,0 +1,34 @@
+// test of mmg3d for move objets in a mesh ...
+load "msh3" 
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"                                                               
+include "MeshSurface.idp"
+
+real hs = 0.8; 
+int[int]  N=[4/hs,8/hs,11.5/hs];
+real [int,int]  B=[[-1.0,1.0],[-1.0,1.0],[-1.0,1.0]];
+int [int,int]  L=[[311,311],[311,311],[311,311]];
+mesh3 ThH = SurfaceHex(N,B,L,1);
+mesh3 ThSd =Sphere(5,1,310,1); 
+
+ThSd=movemesh3(ThSd,transfo=[x/sqrt(x^2 + y^2 + z^2),y/sqrt(x^2 + y^2 + z^2),z/sqrt(x^2 + y^2 + z^2)]);
+ThSd=movemesh3(ThSd,transfo=[10*x,10*y,10*z]);
+
+mesh3 ThHS=ThH+ThSd;
+medit("ThHS", ThHS);
+
+//Definimos las dos regions 
+
+mesh3 Th = tetg(ThHS,switch="pqaAAYYQ");
+medit("Box in a Sphere",Th);
+
+//fespace Vh(Th,P1); 
+
+
+
+//real r=int3d(Th)(x^2);
+
+//cout<< "la integral es " << r <<endl; 
+
+plot(Th);

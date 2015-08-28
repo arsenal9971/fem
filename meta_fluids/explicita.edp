@@ -1,0 +1,39 @@
+// En este programa se observa el resultado de resolver una ecuación con una solución explícita 
+
+real k1=1, w=1, dt=0.1, Tf=100, c2=10;
+
+//Creando el dominio y malla
+
+border a(t=0,30){x=t; y=0; label=1;};
+border b(t=0,2*pi){x=30; y=t; label=2;};
+border c(t=0,30){x=30-t; y=2*pi; label=3;};
+border d(t=0,2*pi){x=0; y=2*pi-t; label=4;};
+border e(t=0,2*pi){x=5; y=t; label=5;};
+border g(t=0,2*pi){x=10; y=t; label=6;};
+
+int n=240;
+mesh Th=buildmesh(a(n)+b(n)+c(n)+d(n)+e(n)+g(n));
+
+
+fespace Vh(Th,P2,periodic=[[1,x],[3,x]]); //Definimos el espacio de funciones periódicas en las fronteras 3 y 1
+fespace Vh1(Th, P2); //Definimos un espacio para las pseudoperiodicas 
+
+Vh<complex> u,v;
+
+//Empezamos el loop en el tiempo 
+real kk=0;
+
+
+//func f=cos(k1*x);
+func f=exp(1i*(k1*x));
+problem Explicita(u,v)=int2d(Th)(dx(u)*conj(dx(v))+dy(u)*conj(dy(v)))+int2d(Th)(((-w^2)*u/(c2*dt)^2)*conj(v))+on(4, u=f);
+
+Explicita;
+
+Vh ur=real(u), ui=imag(u); 
+//Regresamos a la función original
+
+plot(ur);
+
+
+

@@ -1,0 +1,182 @@
+//////////////////////////////////////////////////////////
+// Optimizacion parametrica del grosor de una membrana  //
+// para el caso autoadjunto por el metodo de condicones //
+// de optimalidad.                                      //
+//////////////////////////////////////////////////////////
+
+
+int niter=30;			// Numero maximo de iteaciones
+int n=10;			    // Tamaño de la malla
+real lagrange=1.;		// Multiplicador de Lagrange para la restriccion de volumen
+real lagmin, lagmax ;   // Cotas para el multiplicador de Lagrange
+int inddico ;
+real compliance;		// Rigidez (Complience)
+real volume0;			// Volumen Inicial 
+real volume,volume1;	// Volume actualizado de la membrana
+string caption, captionf;			// Caption de las graficas
+real[int] vviso(21);
+for (int i=0;i<21;i++)
+vviso[i]=i*0.05 ;
+
+///////////////////////////////////////////////////////////
+// Cotas maximas y minimas para el grosor de la membrana //
+///////////////////////////////////////////////////////////
+real hmin=0.1;
+real hmax=1.0;
+real hmoy=0.5;
+func h0=hmoy;
+
+///////////////////////////////////////////
+// Definicion del dominio de la membrana //
+/////////////////////////////////////////// 
+//mesh Sh= square(10*n,10*n);
+border a(t=0,2.*pi){x=3*cos(t);y=4*sin(t);label=1;};
+mesh Sh=buildmesh(a(10*n));
+
+/////////////////////////////////////////////////
+// Definicion del espacio de elementos finitos //
+/////////////////////////////////////////////////
+fespace Vh1(Sh,P2);
+fespace Vh0(Sh,P1); 
+
+Vh1 u,v;
+Vh0 h, hold, densidad;
+
+h=h0;
+func f=1.0;  
+
+//////////////////////////////
+// Problema de la membrana //
+///////////////////////////// 
+problem membrana(u,v)= 
+   int2d(Sh)(h*dx(u)*dx(v)+h*dy(u)*dy(v))
+-int2d(Sh)(f*v) 
++on(1,u=0);
+//+on(1,2,3,4,u=0);
+
+//////////////////////
+// Volumen Inicial //
+/////////////////////
+volume0=int2d(Sh)(h);
+
+///////////////////////
+// Rigidez Inicial  //
+//////////////////////
+membrana;
+compliance=int2d(Sh)(f*u);
+cout << endl;
+cout << "------------------------------------------------------------" << endl;
+cout << endl;
+cout<<"Inicilizacion:   Rigidez = "<<compliance<<",    Volumen = "<<volume0<<endl;
+cout << endl;
+cout << "------------------------------------------------------------" << endl;
+
+
+////////////////////////////////
+//     Loop de Optimization   //
+////////////////////////////////
+ 
+int iter;
+
+for (iter=1;iter< niter;iter=iter+1)  
+{
+cout <<"Iteration " <<iter <<" ----------------------------------------" <<endl;
+
+hold = h ;
+
+//////////////////////////////////////////////////
+//  Condicion de optimalizada en para el grosor //
+//  en terminos de la densidad de energia       //
+//////////////////////////////////////////////////
+
+densidad = h*(dx(u)^2+dy(u)^2);
+
+h = sqrt(densidad*hold/lagrange) ;
+h = min(h,hmax) ;
+h = max(h,hmin) ;
+
+//////////////////////////////////////////// 
+// Encuentra el intervalo para encontrar //
+// el valo del multiplicador de lagrange //
+///////////////////////////////////////////
+volume=int2d(Sh)(h);
+volume1 = volume ;
+//
+if (volume1 < volume0)
+{
+   lagmin = lagrange ;
+   while (volume < volume0)
+{ 
+      lagrange = lagrange/2 ;
+      h = sqrt(densidad*hold/lagrange) ;
+      h = min(h,hmax) ;
+      h = max(h,hmin) ;
+      volume=int2d(Sh)(h) ; 
+};
+   lagmax = lagrange ;
+};
+//
+if (volume1 > volume0)
+{
+   lagmax = lagrange ;
+   while (volume > volume0)
+{
+      lagrange = 2*lagrange ;
+      h = sqrt(densidad*hold/lagrange) ;
+      h = min(h,hmax) ;
+      h = max(h,hmin) ;
+      volume=int2d(Sh)(h) ;
+};
+   lagmin = lagrange ;
+};
+//
+if (volume1 == volume0) 
+{
+   lagmin = lagrange ;
+   lagmax = lagrange ;
+};
+
+///////////////////////////////////////////////////////////////////
+// Dicotmia para encontrar el valo del multiplicador de lagrange //
+///////////////////////////////////////////////////////////////////
+inddico=0;
+while ((abs(1.-volume/volume0)) > 0.000001)
+{
+   lagrange = (lagmax+lagmin)*0.5 ;
+   h = sqrt(densidad*hold/lagrange) ;
+   h = min(h,hmax) ;
+   h = max(h,hmin) ;
+   volume=int2d(Sh)(h) ;
+   inddico=inddico+1;
+   if (volume < volume0) 
+      {lagmin = lagrange ;} ;
+   if (volume > volume0)
+      {lagmax = lagrange ;} ;
+};
+
+//cout<<"Numero de iteraciones de la dicotomia: "<<inddico<<endl;
+
+// Resolviendo el problema de la membrana
+membrana;
+
+//Calculo de la Rigidez  
+compliance=int2d(Sh)(f*u);
+cout<<" Rigidez = "<<compliance<<",    Volumen = "<<volume<<" Lagrange: "<<lagrange<<endl;
+
+//////////////////////////////////////// 
+// Grafica el diseño actual de grosor //
+////////////////////////////////////////
+
+caption="Iteracion="+iter+", Rigidez="+compliance+", Volumen="+volume;
+plot(Sh,h,fill=1,value=true,viso=vviso,cmm=caption,wait=0); 
+
+//////////////////
+// Fin del loop //
+//////////////////
+};
+
+//Grafica el diseño final
+captionf= "Final: Iter.="+iter+", Rigidez="+compliance+", Volumen="+volume;
+plot(Sh,h,fill=1,value=1,viso=vviso,cmm=captionf);//,ps=save+".eps");
+
+Sh=adaptmesh(Sh,h);

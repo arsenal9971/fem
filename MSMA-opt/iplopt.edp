@@ -1,0 +1,137 @@
+//Problema de msma's
+ load "ff-Ipopt"
+
+//Definimos constantes
+
+real he=0.41, s1=0.12; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] z = [0.25,0.25,0.25,0.25]; //inicializar z
+real theta=0.5*pi/180.;
+
+// Defino los vectores normales interiores 
+//  las fronteras de la malla exterior
+//macro nuC1 [cos(theta), sin(theta)] //
+//macro nuC2 [sin(theta), cos(theta)] //
+//macro nuC3 [-cos(theta),-sin(theta)] //
+//macro nuC4 [-sin(theta),-cos(theta)] //
+
+macro nuC1 [1., 0.] //
+macro nuC2 [0., 1.] //
+macro nuC3 [-1.,0.] //
+macro nuC4 [0.,-1.] //
+
+// el vector de magnetizacion
+macro m  [m1, m2 ] //
+macro mp [m1p,m2p] //
+macro e [z[0]+z[1],z[2]+z[3]] //
+
+// defino las fronteras
+int C1=1, C2=2,C3=3,C4=4, C0=0;
+int ne =100; 
+int ni =100;
+int r=10;
+int i;
+
+// defino el tamaño de la muestra
+real l1=0.45; //tamaño en x 
+real l2=1.66;// tamaño en y
+// frontera exterior
+border C00(t=0,2.*pi){x=r*cos(t);y=r*sin(t);label=C0;}
+// frontera interior (Obs: hay que parametrizar 
+// bien las fronteras para que los hoyos esten 
+// bien definidos)
+border C11(t=-1,1){x=l1/2;;y=l2/2*t;label=C1;}
+border C12(t=-1,1){x=-l1/2*t;y=l2/2;label=C2;}
+border C13(t=-1,1){x=-l1/2;y=-l2/2*t;label=C3;}
+border C14(t=-1,1){x=l1/2*t;y=-l2/2;label=C4;}
+
+// Creo la malla exterior
+mesh Sh1=buildmesh (C00(ne)	+ C11(ni) + C12(ni) + C13(ni) + C14(ni));
+fespace Vh(Sh1, P1);
+// y las variables necesarias en este espacio
+Vh u,v, um1, um2;
+// Creo la malla interior, el espacio de elementos finitos
+mesh Sh2=buildmesh (C11(ni) + C12(ni) + C13(ni) + C14(ni));
+fespace Vh2(Sh2, P1);
+// y las variables necesarias en este espacio
+Vh2 salida, ui, vi, uip, vip; 
+
+//Inicializamos el funcional
+
+func real J(real[int] & z)
+{
+
+
+real m1=z[0]-z[1];
+real m2=z[2]-z[3];
+
+// resolvemos las ecuaciones en  el punto
+solve Poisson(u,v) = 
+	 int2d(Sh1)(dx(u)*dx(v)+dy(u)*dy(v)) 
+	+int1d(Sh1,C1)((m'*nuC1)*v)
+	+int1d(Sh1,C2)((m'*nuC2)*v)
+	+int1d(Sh1,C3)((m'*nuC3)*v)
+	+int1d(Sh1,C4)((m'*nuC4)*v)
+	+on(C0,u=0);
+ui=dx(u);
+vi=dy(u);
+
+
+Ep=int2d(Sh2)(-ui*m1-vi*m2)/2; //Energía magnética por el campo interior
+Ex=0.5*(z[0]+z[1])*(z[2]+z[3])*(z[0]/(z[0]+z[1]+1e-12)-z[2]/(z[2]+z[3]+1e-12))^2.; //Energia de exceso 
+//Calculamos la energia total 
+Et=(Ep+Ex-he*(z[0]-z[1])+s1*(z[0]+z[1])-2*s1*(z[2]+z[3]));
+cout<<z<<endl;
+cout<<"aqui el gradiente: "<<dEt<<endl;
+cout<<Et<<" "<<Ex<<endl;
+return Et; 
+}
+
+
+
+func real[int] gradJ(real[int] & z)
+{
+real z01=z[0]+z[1];
+real z23=z[2]+z[3];
+dEt[0]=-int2d(Sh2)(dx(u))+1./2.*(z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))^2.+2.*z01*z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))*(z[1]/(z01+1e-12)^2.))-he+s1;
+dEt[1]=int2d(Sh2)(dx(u))+1./2.*(z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))^2.+2.*z01*z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))*(-z[0]/(z01+1e-12)^2.))+he+s1;
+dEt[2]=-int2d(Sh2)(dy(u))+1./2.*(z01*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))^2.+2.*z01*z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))*(-z[3]/(z23+1e-12)^2.))-2.*s1;
+dEt[3]=int2d(Sh2)(dy(u))+1./2.*(z01*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))^2.+2.*z01*z23*(z[0]/(z01+1e-12)-z[2]/(z23+1e-12))*(z[2]/(z23+1e-12)^2.))-2.*s1;
+
+return dEt;
+}
+
+
+//Definimos c
+
+func real[int] C(real[int] & z)
+{
+real[int] c=[0.];
+c[0]=z[0]+z[1]+z[2]+z[3]-1;
+return c;	
+}
+
+matrix jacCBuffer;
+
+//Definimos el gradiente de c
+func matrix jacC(real[int] & z)
+{
+
+	jacCBuffer=[[1.,1.,1.,1.]];
+	return jacCBuffer;
+}
+
+real[int] zlb=[0.,0.,0.,0.];
+real[int] zub=[1.,1.,1.,1.];
+
+real[int] clb=[0.],cub=[0.];
+
+
+
+IPOPT(J,gradJ,C,jacC,z,lb=zlb,ub=zub,clb=clb,cub=cub, tol=1e-6 , linesearch=0 , maxiter=300);
+
+cout << z << " " << z[0]+z[1]+z[2]+z[3] << " " << Ep<< " "<< Ex << " "<< Et << " " << dEt << endl;
+
+plot(u); 
+

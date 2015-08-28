@@ -1,0 +1,133 @@
+// Problema de msma's en 3D
+
+//Llamamos a las librerias necesarias
+load "ff-Ipopt"
+load "tetgen" 
+load "medit" 
+load "mmg3d-v4.0"   
+load "msh3"                                                            
+include "getARGV.idp"
+
+//Libreria del solver en paralelo 
+real dt=getARGV("-dt",0.01);
+int nn=getARGV("-n",20);
+int imax=getARGV("-niter",10);
+int op=getARGV("-op",1);
+int pplot=getARGV("-plot",0);
+
+//Tamaño de la muestra 
+
+real l1=0.45, l2=0.26, l3=1.66;
+
+//Definimos los dos mallados
+
+//Definimos las etiquetas
+int [int,int]  L1=[[311,312],[313,314],[315,316]];
+int [int,int]  L2=[[1,2],[3,4],[5,6]];
+
+
+//Creacion del dominio interior 
+int n=10;
+border a(t=0,l1){x=t; y=0; label=1;};
+border d(t=0,l2){x=l1; y=t; label=2;};
+border e(t=0,l1){x=l1-t; y=l2; label=3;};
+border f(t=0,l2){x=0; y=l2-t; label=4;};
+mesh Th2=buildmesh(a(n)+d(n)+e(n)+f(n));
+//La parte tridimensional 
+int[int] rup=[0,L1(2,1)],  rdown=[0,L1(2,0)], rmid=[1,L1(1,0),2,L1(0,1),3,L1(1,1),4,L1(0,0)];
+real zmin=0,zmax=l3;
+mesh3 ThH=buildlayers(Th2,n,zbound=[zmin,zmax],labelmid=rmid,  reffaceup = rup,reffacelow = rdown);
+
+//Creacion del dominio exterior 
+
+int n2=20;
+mesh Th3=square(n2,n2,[-100+200*x,-100+200*y]);
+int[int] rup1=[0,L2(2,1)],  rdown1=[0,L2(2,0)], rmid1=[1,L2(1,0),2,L2(0,1),3,L2(1,1),4,L2(0,0)];
+real zmin1=-100,zmax1=100;
+mesh3 ThSd=buildlayers(Th3,n2,zbound=[zmin1,zmax1],labelmid=rmid1, reffaceup = rup1 ,reffacelow = rdown1);
+
+mesh3 Th=ThH+ThSd;
+medit("Th", Th);
+
+// Dividimos el mallado en cada procesador 
+// establecer un número de región de un número de procesador
+real ccc = mpisize/real(Th.nt) ;
+if(op) Th=change(Th,fregion= min(mpisize-1,int(nuTriangle* ccc+1e-10)));
+else Th=change(Th,fregion=0);
+int reg= op ? mpirank : 0;
+//  end of trick
+cout << "  *** Th: vol " << Th.mesure << "  " << int3d(Th,reg)(1.) << endl;
+fespace Vh(Th,P2);
+fespace Vh1(ThH,P2);
+
+//Definimos constantes
+
+real he=0.0, s1=-0.11; 
+real Ep=0, Ex=0, Et=0; //inicializamos las energías 
+real[int] dEt=[0.,0.,0.,0.,0.,0.]; //inicializamos el gradiente 
+real[int] c=[0.,0.]; //inicializamos la constriccion 
+real[int] t = [0.,0.,0.,0.,0.5,0.5]; //inicializar z
+real theta=0.*pi/180.;
+
+
+//Defino los vectores normales interiores
+
+macro nuC1 [1., 0., 0.] //
+macro nuC2 [0., 1., 0.] //
+macro nuC3 [0., 0., 1.] //
+macro nuC4 [-1., 0., 0.] //
+macro nuC5 [0., -1., 0.] //
+macro nuC6 [0., 0., -1.] //
+
+//defino el vector de magnetizacion
+macro m [m1, m2, m3] //
+macro e [t[0]+t[1],t[2]+t[3],t[4]+t[5]];
+
+//Definimos las variables de cada espacio 
+
+Vh u, v, um1, um2, um3;
+Vh1 salida, ui, vi, wi;
+
+	real m1=t[0]-t[1];
+	real m2=t[2]-t[3];
+	real m3=t[4]-t[5];
+
+//Calculamos solo en numero de region= numero de procesador  
+
+varf Poisson(u,v) = 
+	 int3d(Th)(dx(u)*dx(v)+dy(u)*dy(v)+dz(u)*dz(v)) 
+	+int2d(Th,311)((m'*nuC4)*v)
+	+int2d(Th,312)((m'*nuC1)*v)
+	+int2d(Th,313)((m'*nuC5)*v)
+	+int2d(Th,314)((m'*nuC2)*v)
+	+int2d(Th,315)((m'*nuC6)*v)
+	+int2d(Th,316)((m'*nuC3)*v)
+	+on(1,2,3,4,5,6,u=0);
+
+matrix AA=Poisson(Vh,Vh,tgv=ttgv);
+
+// Reduccion de la matriz para obtener la matriz completa  
+// warning the tgv number is now mpisize*tgv for B.C.
+matrix A; 
+
+if(op) mpiAllReduce(AA,A,mpiCommWorld,mpiSUM);
+else A=AA;
+set(A,solver=sparsesolver,tgv=ttgv,sparams=ssparams) ; // factorize
+
+real [int] b(A.n),bb(A.n) ;
+real[int] bcl= Poisson(0,Vh,tgv=ttgv) ; // The B.C vector   
+
+
+//Resolucion 
+bb = u[];
+bb += bcl ; 
+
+if(op) mpiAllReduce(bb,b,mpiCommWorld,mpiSUM);
+else b=bb;
+u[] = A^-1*b ; // resolution
+	if(mpirank==0)
+
+
+//Graficamos 
+plot(u, dim=3);
+
